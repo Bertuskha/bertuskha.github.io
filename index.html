@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CAVE simulator</title>
+  <link rel="stylesheet" crossorigin href="/assets/index-Dd6lRqA4.css">
+</head>
+<body>
+<div id="info">
+	CAVE Simulator. The head and teapot are draggable. <br />
+	"L" See from Left Eye | "R" See from Right Eye | "S" toggle show scene  <br />
+</div>
+
+<!-- Check: https://threejs.org/docs/index.html#manual/en/introduction/Installation 
+for alternative installations -->
+
+<script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
+<script src="https://unpkg.com/three@0.139.2/examples/js/controls/DragControls.js"></script>
+<script src="https://unpkg.com/three@0.139.2/examples/js/geometries/TeapotGeometry.js"></script>
+<!-- <script src="https://app.unpkg.com/three@0.139.2/files/examples/js/loaders/STLLoader.js"></script> -->
+<!-- <script src="https://unpkg.com/three@0.139.2/examples/js/loaders/STLLoader.js"></script> -->
+<!-- <input type="file" id="fileInput" accept=".stl"> -->
+
+<script>
+	class STLLoader extends THREE.Loader {
+
+		constructor( manager ) {
+
+			super( manager );
+
+		}
+
+		load( url, onLoad, onProgress, onError ) {
+
+			const scope = this;
+			const loader = new THREE.FileLoader( this.manager );
+			loader.setPath( this.path );
+			loader.setResponseType( 'arraybuffer' );
+			loader.setRequestHeader( this.requestHeader );
+			loader.setWithCredentials( this.withCredentials );
+			loader.load( url, function ( text ) {
+
+				try {
+
+					onLoad( scope.parse( text ) );
+
+				} catch ( e ) {
+
+					if ( onError ) {
+
+						onError( e );
+
+					} else {
+
+						console.error( e );
+
+					}
+
+					scope.manager.itemError( url );
+
+				}
+
+			}, onProgress, onError );
+
+		}
+
+		parse( data ) {
+
+			function isBinary( data ) {
+
+				const reader = new DataView( data );
+				const face_size = 32 / 8 * 3 + 32 / 8 * 3 * 3 + 16 / 8;
+				const n_faces = reader.getUint32( 80, true );
+				const expect = 80 + 32 / 8 + n_faces * face_size;
+
+				if ( expect === reader.byteLength ) {
+
+					return true;
+
+				} // An ASCII STL data must begin with 'solid ' as the first six bytes.
+				// However, ASCII STLs lacking the SPACE after the 'd' are known to be
+				// plentiful.  So, check the first 5 bytes for 'solid'.
+				// Several encodings, such as UTF-8, precede the text with up to 5 bytes:
+				// https://en.wikipedia.org/wiki/Byte_order_mark#Byte_order_marks_by_encoding
+				// Search for "solid" to start anywhere after those prefixes.
+				// US-ASCII ordinal values for 's', 'o', 'l', 'i', 'd'
+
+
+				const solid = [ 115, 111, 108, 105, 100 ];
+
+				for ( let off = 0; off < 5; off ++ ) {
+
+					// If "solid" text is matched to the current offset, declare it to be an ASCII STL.
+					if ( matchDataViewAt( solid, reader, off ) ) return false;
+
+				} // Couldn't find "solid" text at the beginning; it is binary STL.
+
+
+				return true;
+
+			}
+
+			function matchDataViewAt( query, reader, offset ) {
+
+				// Check if each byte in query matches the corresponding byte from the current offset
+				for ( let i = 0, il = query.length; i < il; i ++ ) {
+
+					if ( query[ i ] !== reader.getUint8( offset + i ) ) return false;
+
+				}
+
+				return true;
+
+			}
+
+			function parseBinary( data ) {
+
+				const reader = new DataView( data );
+				const faces = reader.getUint32( 80, true );
+				let r,
+					g,
+					b,
+					hasColors = false,
+					colors;
+				let defaultR, defaultG, defaultB, alpha; // process STL header
+				// check for default color in header ("COLOR=rgba" sequence).
+
+				for ( let index = 0; index < 80 - 10; index ++ ) {
+
+					if ( reader.getUint32( index, false ) == 0x434F4C4F
+        /*COLO*/
+        && reader.getUint8( index + 4 ) == 0x52
+        /*'R'*/
+        && reader.getUint8( index + 5 ) == 0x3D
+        /*'='*/
+					) {
+
+						hasColors = true;
+						colors = new Float32Array( faces * 3 * 3 );
+						defaultR = reader.getUint8( index + 6 ) / 255;
+						defaultG = reader.getUint8( index + 7 ) / 255;
+						defaultB = reader.getUint8( index + 8 ) / 255;
+						alpha = reader.getUint8( index + 9 ) / 255;
+
+					}
+
+				}
+
+				const dataOffset = 84;
+				const faceLength = 12 * 4 + 2;
+				const geometry = new THREE.BufferGeometry();
+				const vertices = new Float32Array( faces * 3 * 3 );
+				const normals = new Float32Array( faces * 3 * 3 );
+
+				for ( let face = 0; face < faces; face ++ ) {
+
+					const start = dataOffset + face * faceLength;
+					const normalX = reader.getFloat32( start, true );
+					const normalY = reader.getFloat32( start + 4, true );
+					const normalZ = reader.getFloat32( start + 8, true );
+
+					if ( hasColors ) {
+
+						const packedColor = reader.getUint16( start + 48, true );
+
+						if ( ( packedColor & 0x8000 ) === 0 ) {
+
+							// facet has its own unique color
+							r = ( packedColor & 0x1F ) / 31;
+							g = ( packedColor >> 5 & 0x1F ) / 31;
+							b = ( packedColor >> 10 & 0x1F ) / 31;
+
+						} else {
+
+							r = defaultR;
+							g = defaultG;
+							b = defaultB;
+
+						}
+
+					}
+
+					for ( let i = 1; i <= 3; i ++ ) {
+
+						const vertexstart = start + i * 12;
+						const componentIdx = face * 3 * 3 + ( i - 1 ) * 3;
+						vertices[ componentIdx ] = reader.getFloat32( vertexstart, true );
+						vertices[ componentIdx + 1 ] = reader.getFloat32( vertexstart + 4, true );
+						vertices[ componentIdx + 2 ] = reader.getFloat32( vertexstart + 8, true );
+						normals[ componentIdx ] = normalX;
+						normals[ componentIdx + 1 ] = normalY;
+						normals[ componentIdx + 2 ] = normalZ;
+
+						if ( hasColors ) {
+
+							colors[ componentIdx ] = r;
+							colors[ componentIdx + 1 ] = g;
+							colors[ componentIdx + 2 ] = b;
+
+						}
+
+					}
+
+				}
+
+				geometry.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
+				geometry.setAttribute( 'normal', new THREE.BufferAttribute( normals, 3 ) );
+
+				if ( hasColors ) {
+
+					geometry.setAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+					geometry.hasColors = true;
+					geometry.alpha = alpha;
+
+				}
+
+				return geometry;
+
+			}
+
+			function parseASCII( data ) {
+
+				const geometry = new THREE.BufferGeometry();
+				const patternSolid = /solid([\s\S]*?)endsolid/g;
+				const patternFace = /facet([\s\S]*?)endfacet/g;
+				let faceCounter = 0;
+				const patternFloat = /[\s]+([+-]?(?:\d*)(?:\.\d*)?(?:[eE][+-]?\d+)?)/.source;
+				const patternVertex = new RegExp( 'vertex' + patternFloat + patternFloat + patternFloat, 'g' );
+				const patternNormal = new RegExp( 'normal' + patternFloat + patternFloat + patternFloat, 'g' );
+				const vertices = [];
+				const normals = [];
+				const normal = new THREE.Vector3();
+				let result;
+				let groupCount = 0;
+				let startVertex = 0;
+				let endVertex = 0;
+
+				while ( ( result = patternSolid.exec( data ) ) !== null ) {
+
+					startVertex = endVertex;
+					const solid = result[ 0 ];
+
+					while ( ( result = patternFace.exec( solid ) ) !== null ) {
+
+						let vertexCountPerFace = 0;
+						let normalCountPerFace = 0;
+						const text = result[ 0 ];
+
+						while ( ( result = patternNormal.exec( text ) ) !== null ) {
+
+							normal.x = parseFloat( result[ 1 ] );
+							normal.y = parseFloat( result[ 2 ] );
+							normal.z = parseFloat( result[ 3 ] );
+							normalCountPerFace ++;
+
+						}
+
+						while ( ( result = patternVertex.exec( text ) ) !== null ) {
+
+							vertices.push( parseFloat( result[ 1 ] ), parseFloat( result[ 2 ] ), parseFloat( result[ 3 ] ) );
+							normals.push( normal.x, normal.y, normal.z );
+							vertexCountPerFace ++;
+							endVertex ++;
+
+						} // every face have to own ONE valid normal
+
+
+						if ( normalCountPerFace !== 1 ) {
+
+							console.error( 'THREE.STLLoader: Something isn\'t right with the normal of face number ' + faceCounter );
+
+						} // each face have to own THREE valid vertices
+
+
+						if ( vertexCountPerFace !== 3 ) {
+
+							console.error( 'THREE.STLLoader: Something isn\'t right with the vertices of face number ' + faceCounter );
+
+						}
+
+						faceCounter ++;
+
+					}
+
+					const start = startVertex;
+					const count = endVertex - startVertex;
+					geometry.addGroup( start, count, groupCount );
+					groupCount ++;
+
+				}
+
+				geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) );
+				geometry.setAttribute( 'normal', new THREE.Float32BufferAttribute( normals, 3 ) );
+				return geometry;
+
+			}
+
+			function ensureString( buffer ) {
+
+				if ( typeof buffer !== 'string' ) {
+
+					return THREE.LoaderUtils.decodeText( new Uint8Array( buffer ) );
+
+				}
+
+				return buffer;
+
+			}
+
+			function ensureBinary( buffer ) {
+
+				if ( typeof buffer === 'string' ) {
+
+					const array_buffer = new Uint8Array( buffer.length );
+
+					for ( let i = 0; i < buffer.length; i ++ ) {
+
+						array_buffer[ i ] = buffer.charCodeAt( i ) & 0xff; // implicitly assumes little-endian
+
+					}
+
+					return array_buffer.buffer || array_buffer;
+
+				} else {
+
+					return buffer;
+
+				}
+
+			} // start
+
+
+			const binData = ensureBinary( data );
+			return isBinary( binData ) ? parseBinary( binData ) : parseASCII( ensureString( data ) );
+
+		}
+
+	}
+
+	THREE.STLLoader = STLLoader;
+</script>
+
+
+
+<script>
+class DisplaySurface 
+{
+    constructor(name, origin, u_vector, v_vector) 
+    {
+        this.name = name;
+        this.origin = origin;
+        this.u = u_vector;
+        this.v = v_vector;
+    }
+
+	viewMatrix(eye)
+	{
+        const u_norm = this.u.clone().normalize();
+        const v_norm = this.v.clone().normalize();
+        const displ_norm = new THREE.Vector3().crossVectors(u_norm, v_norm);
+
+        const d = displ_norm.clone().dot(this.origin);
+        const distance = Math.abs(eye.clone().dot(displ_norm) + d) / displ_norm.length();
+        const target = eye.clone().sub(displ_norm.multiplyScalar(distance));
+
+		var upVector = this.v.clone().normalize(); //new THREE.Vector3(0,1,0);	
+		var mat = new THREE.Matrix4();
+		mat = mat.lookAt(eye, target, upVector); // this lookAt version creates only a rotation matrix
+		var translate = new THREE.Matrix4().makeTranslation(-eye.x, -eye.y, -eye.z);
+		mat = mat.multiplyMatrices(mat, translate);
+        //console.log("VIEW");
+        //console.log(mat);
+		return mat;
+	}
+	
+    
+    projectionMatrix(eye, znear, zfar)
+    {
+		const u_norm = this.u.clone().normalize();
+        const v_norm = this.v.clone().normalize();
+        const displ_norm = new THREE.Vector3().crossVectors(u_norm, v_norm);
+        //const d = displ_norm.clone().dot(this.origin.clone());
+        //const distance = Math.abs(eye.clone().dot(displ_norm) + d) / displ_norm.length();
+
+        const eye_bottom_left = this.origin.clone().sub(eye);
+        const distance = -eye_bottom_left.dot(displ_norm);
+
+        const eye_top_right = this.origin.clone().add(this.u).add(this.v).sub(eye);
+
+        var left_t = eye_bottom_left.clone().dot(u_norm);
+        var right_t = eye_top_right.clone().dot(u_norm);
+        var bottom_t = eye_bottom_left.clone().dot(v_norm);
+        var top_t = eye_top_right.clone().dot(v_norm);
+
+        var left = znear * left_t / distance;
+        var right = znear * right_t / distance;
+        var bottom = znear * bottom_t / distance;
+        var top = znear * top_t / distance;
+
+        var mat = new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
+        return mat;
+    }
+    
+
+    /*
+    projectionMatrix(eye, znear, zfar)
+    {
+		// to be written by you!
+
+        var left = -1;
+        var right = 1;
+        var bottom = -1;
+        var top = 1;
+        return new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
+    }
+    */
+}
+
+
+var renderer, scene, camera;
+var displaySurfaces, displaySurfaceScene, displaySurfaceTargets;
+var eyeCenter, eyeScene; 
+var orbitControl;
+var showScene = true;
+
+function addDragControlToObjects()
+{
+    var objects = [];
+    objects.push(scene.getObjectByName("Teapot"));
+    objects.push(eyeScene.getObjectByName("Head"));
+
+	
+    var controls = new THREE.DragControls( objects, camera, renderer.domElement );
+    controls.addEventListener( 'hoveron', function ( event ) 
+		{
+            orbitControl.enabled = false;
+        } );
+    controls.addEventListener( 'hoveroff', function ( event ) 
+	{
+            orbitControl.enabled = true;
+    } );
+	controls.addEventListener( 'dragstart', function ( event ) 
+		{
+            event.object.material.emissive.set( 0xaaaaaa );
+        } );
+    controls.addEventListener( 'dragend', function ( event ) 
+		{
+            event.object.material.emissive.set( 0x000000 );
+    } );
+}
+
+function createEyeScene()
+{
+    var IPD = 6.8; 
+    eyeCenter = new THREE.Vector3(50, 20, 100);
+    // eye positions relative to the head
+    var eyeL = new THREE.Vector3( - IPD/2, 10, -6);
+    var eyeR = new THREE.Vector3( + IPD/2, 10, -6);
+    
+    eyeScene = new THREE.Scene();
+
+    // add sphere representing head
+    var geometry = new THREE.SphereGeometry( 10, 32, 22 );
+    var material = new THREE.MeshPhongMaterial( { color: 0xaaaaaa } );
+    var head = new THREE.Mesh( geometry, material );
+    head.name = "Head";
+    head.position.set(eyeCenter.x, eyeCenter.y, eyeCenter.z);
+    eyeScene.add(head);
+
+    // add spheres representing L/R eyes
+    var geometry = new THREE.SphereGeometry( 3, 32, 22 );
+    var material = new THREE.MeshPhongMaterial( { color: 0xff0000 } );
+    var sphere = new THREE.Mesh( geometry, material );
+    sphere.name = "EyeL";
+    sphere.position.set(eyeL.x, eyeL.y, eyeL.z);
+    head.add(sphere);
+	
+    var geometry = new THREE.SphereGeometry( 3, 32, 22 );
+    var material = new THREE.MeshPhongMaterial( { color: 0x0000ff } );
+    var sphere = new THREE.Mesh( geometry, material );
+    sphere.name = "EyeR";
+    sphere.position.set(eyeR.x, eyeR.y, eyeR.z);
+	head.add(sphere);
+    
+    createLights(eyeScene);
+}
+
+function createRenderer()
+{
+    renderer = new THREE.WebGLRenderer({preserveDrawingBuffer: true});
+    renderer.autoClear = false;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+}
+
+function enableOrbitCamera(cam, renderer)
+{
+    orbitControl = new THREE.OrbitControls(cam, renderer.domElement );
+    orbitControl.minDistance = 120;
+    orbitControl.maxDistance = 50000;
+}
+
+function createLights(scn)
+{
+    var ambientLight = new THREE.AmbientLight(0x888888, 0.4);
+    scn.add(ambientLight);
+    var pointLight = new THREE.PointLight(0xffffff, 0.8);
+	pointLight.position.z += 200;
+    scn.add(pointLight);
+}
+
+function createScene()
+{
+    scene = new THREE.Scene();
+
+    var geometry = new THREE.TeapotGeometry( 40, 15);
+    var material = new THREE.MeshPhongMaterial( { color: 0xffffff } );
+    var teapot = new THREE.Mesh(geometry, material);
+    teapot.name = "Teapot";
+    teapot.position.z-=70;
+    scene.add( teapot );
+    
+    const loader = new STLLoader();
+    const geometry_dragon = loader.load( './Stanford dragon.stl' )
+    scene.add( new THREE.Mesh( geometry_dragon ) );
+
+    createLights(scene);
+}
+
+// create a scene with 3D objects representing the display surfaces
+function createDisplaySurfaceScene()
+{
+    displaySurfaceScene = new THREE.Scene();
+
+    // add display surfaces
+    for (var [index, displaySurface] of displaySurfaces.entries())
+    {
+        var origin = displaySurface.origin;
+        var u = displaySurface.u;
+        var v = displaySurface.v;
+  
+        var geometry = new THREE.BoxGeometry(u.length(), v.length(), 0.01);
+        var material = new THREE.MeshPhongMaterial( {map: displaySurfaceTargets[index].texture} );
+        var cube = new THREE.Mesh( geometry, material );
+        cube.name = displaySurface.name;
+        if (displaySurface.name == "Left")
+            cube.rotation.y = Math.PI / 2;
+       
+		if (displaySurface.name == "Right")
+            cube.rotation.y = - Math.PI / 2;
+			
+		if (displaySurface.name == "Floor")
+		{
+            cube.rotation.x =  Math.PI / 2;
+			cube.rotation.z =  Math.PI ;
+		}
+       
+	    var uHalf = u.clone().multiplyScalar(0.5);
+		var vHalf = v.clone().multiplyScalar(0.5);
+		var center = new THREE.Vector3().addVectors(origin, uHalf);
+		center.add(vHalf);
+		cube.position.set(center.x, center.y, center.z);
+		
+        displaySurfaceScene.add(cube);
+    }
+    
+    createLights(displaySurfaceScene);
+}
+
+function createDisplaySurfaceTargets()
+{
+    const SIZE = 1024;  // texture resolution
+    displaySurfaceTargets = [];
+    
+    for (var v of displaySurfaces)       
+        displaySurfaceTargets.push(new THREE.WebGLRenderTarget(SIZE, SIZE));
+}
+
+
+function createCamera()
+{
+    camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 10000 );
+    camera.position.set( 100, 100, 300 );
+    camera.lookAt( 0, 0, 0 );
+}
+
+function createDisplaySurfaces()
+{
+    displaySurfaces = [];
+    // FRONT SCREEN
+    var frontScreen = new DisplaySurface("Front", 
+        new THREE.Vector3(-150.0, -150.0, -150.0), 
+        new THREE.Vector3(300.0, 0.0,   0.0), 
+        new THREE.Vector3(0.0, 300.0,   0.0));
+    displaySurfaces.push(frontScreen);
+
+    // LEFT SCREEN
+    var leftScreen = new DisplaySurface("Left",
+        new THREE.Vector3(-150.0, -150.0, 150.0), 
+        new THREE.Vector3(0.0, 0.0,  -300.0), 
+        new THREE.Vector3(0.0, 300.0,   0.0));
+    displaySurfaces.push(leftScreen);
+	
+    // RIGHT SCREEN
+    var rightScreen = new DisplaySurface("Right",
+        new THREE.Vector3( 150.0, -150.0, -150.0), 
+        new THREE.Vector3(0.0, 0.0,   300.0), 
+        new THREE.Vector3(0.0, 300.0,   0.0));
+    displaySurfaces.push(rightScreen);
+
+    // FLOOR SCREEN
+    var floorScreen = new DisplaySurface("Floor",
+        new THREE.Vector3(-150.0, -150.0, 150.0), 
+        new THREE.Vector3(300.0, 0.0,  0.0), 
+        new THREE.Vector3(0.0, 0.0,   -300.0));
+    displaySurfaces.push(floorScreen);	
+}
+
+function getLeftEyePosition()
+{
+    var eye = eyeScene.getObjectByName("EyeL");
+    return eye.getWorldPosition(new THREE.Vector3());
+}
+
+function getRightEyePosition()
+{
+    var eye = eyeScene.getObjectByName("EyeR");
+    return eye.getWorldPosition(new THREE.Vector3());
+}
+
+function cameraFromViewProj(view, proj)
+{
+	var cam = camera.clone();
+    var inv = new THREE.Matrix4();
+	inv.copy(view).invert();
+	cam.position.set(inv.elements[12], inv.elements[13], inv.elements[14]);
+	cam.setRotationFromMatrix(view);
+	cam.projectionMatrix = proj.clone();
+	return cam;
+}
+
+// refresh function
+var animate = function () {
+    var gl = renderer.getContext();
+    requestAnimationFrame(animate);
+
+    // 1. render scene objects
+	renderer.setClearColor(0x808080);
+    renderer.clear();
+    if (showScene)
+        renderer.render(scene, camera);
+    
+    // 2. render scene objects onto a texture, for each target
+    for (let [index, displaySurface] of displaySurfaces.entries())
+    {
+        renderer.setRenderTarget(displaySurfaceTargets[index]);
+        renderer.setClearColor(0x404040);
+        renderer.clear();
+
+		// left eye on RED channel
+        gl.colorMask(1, 0, 0, 0); 
+		var eye = getLeftEyePosition();
+		var view = displaySurface.viewMatrix(eye);
+		var proj = displaySurface.projectionMatrix(eye, 0.1, 10000);
+        var leftCamera = cameraFromViewProj(view, proj);
+        renderer.render(scene, leftCamera); 
+    
+		// right eye on GREEN, BLUE channels
+		gl.colorMask(0, 1, 1, 0);
+		var eye = getRightEyePosition();
+		var view = displaySurface.viewMatrix(eye);
+		var proj = displaySurface.projectionMatrix(eye, 0.1, 10000);
+        var rightCamera = cameraFromViewProj(view, proj);
+        renderer.clearDepth();
+        renderer.render(scene, rightCamera); 
+		
+        gl.colorMask(1, 1, 1, 0);
+    }
+    // restore state
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(0x000000);
+  
+    // 3. render display surfaces as (textured) quads
+    renderer.render(displaySurfaceScene, camera);
+	
+	// 4. render eyes
+    renderer.render(eyeScene, camera);
+	
+};
+
+
+window.addEventListener( 'keydown', function ( event ) 
+{
+        switch ( event.code ) {
+            case 'KeyL': 
+                var eye = getLeftEyePosition();
+                camera.position.set(eye.x, eye.y, eye.z); 
+                break;
+                
+            case 'KeyR': 
+                var eye = getRightEyePosition();
+                camera.position.set(eye.x, eye.y, eye.z); 
+                break;
+                
+            case 'KeyS':
+                showScene = !showScene;
+                break;
+				
+			case 'KeyT':
+				var viewF = displaySurfaces[0].viewMatrix(new THREE.Vector3(50,20,100));
+				var viewL = displaySurfaces[1].viewMatrix(new THREE.Vector3(50,20,100));
+				var viewR = displaySurfaces[2].viewMatrix(new THREE.Vector3(50,20,100));
+				var viewB = displaySurfaces[3].viewMatrix(new THREE.Vector3(50,20,100));
+				console.log("View matrices:");
+				console.log(viewF);
+				console.log(viewL);
+				console.log(viewR);
+				console.log(viewB);
+				break;
+                
+            case 'KeyP':
+                var projF = displaySurfaces[0].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				var projL = displaySurfaces[1].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				var projR = displaySurfaces[2].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				var projB = displaySurfaces[3].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				console.log("Projection matrices:");
+				console.log(projF);
+				console.log(projL);
+				console.log(projR);
+				console.log(projB);
+                break;
+                    
+}
+});
+
+
+
+createRenderer();  			// create WebGL renderer
+createDisplaySurfaces();	// Display surfaces
+createDisplaySurfaceTargets(); // Textures for the display surfaces
+createDisplaySurfaceScene();	// 3D objects for the display surfaces
+createEyeScene();	// spheres representing head + eyes
+createScene();		// some objects to test (teapot...)
+createCamera();		// a third-person camera
+enableOrbitCamera(camera, renderer);  // basic camera control
+addDragControlToObjects();	// allow some objects to be dragged
+animate();
+
+
+		</script>
+    </body>
+</html>
