@@ -2,27 +2,34 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>CAVE simulator</title>
+<title>CAVE simulator (WebXR enabled)</title>
   <link rel="stylesheet" crossorigin href="/assets/index-Dd6lRqA4.css">
 </head>
 <body>
 <div id="info">
 	CAVE Simulator. The head and teapot are draggable. <br />
 	"L" See from Left Eye | "R" See from Right Eye | "S" toggle show scene  <br />
+	WebXR: <span id="xr-status">not initialized</span>
 </div>
 
-<!-- Check: https://threejs.org/docs/index.html#manual/en/introduction/Installation 
-for alternative installations -->
+<button id="xr-button" style="position:fixed;right:20px;top:20px;z-index:999;padding:8px 12px;">Init WebXR</button>
 
 <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
 <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
 <script src="https://unpkg.com/three@0.139.2/examples/js/controls/DragControls.js"></script>
 <script src="https://unpkg.com/three@0.139.2/examples/js/geometries/TeapotGeometry.js"></script>
-<!-- <script src="https://app.unpkg.com/three@0.139.2/files/examples/js/loaders/STLLoader.js"></script> -->
-<!-- <script src="https://unpkg.com/three@0.139.2/examples/js/loaders/STLLoader.js"></script> -->
-<!-- <input type="file" id="fileInput" accept=".stl"> -->
 
 <script>
+	// ---------- small additions to support WebXR tracking of the head ----------
+	// HEAD_POSE_SCALE: multiplies meters reported by XR device to match the scene units
+	// Change this value if the head appears too small/large relative to the scene.
+	const HEAD_POSE_SCALE = 100.0; // default: multiply meters -> scene units (tweak as needed)
+
+	let xrSession = null;
+	let xrRefSpace = null;
+
+	// ---------- the rest of your original code (slightly adapted) ----------
+
 	class STLLoader extends THREE.Loader {
 
 		constructor( manager ) {
@@ -78,24 +85,15 @@ for alternative installations -->
 
 					return true;
 
-				} // An ASCII STL data must begin with 'solid ' as the first six bytes.
-				// However, ASCII STLs lacking the SPACE after the 'd' are known to be
-				// plentiful.  So, check the first 5 bytes for 'solid'.
-				// Several encodings, such as UTF-8, precede the text with up to 5 bytes:
-				// https://en.wikipedia.org/wiki/Byte_order_mark#Byte_order_marks_by_encoding
-				// Search for "solid" to start anywhere after those prefixes.
-				// US-ASCII ordinal values for 's', 'o', 'l', 'i', 'd'
-
+				}
 
 				const solid = [ 115, 111, 108, 105, 100 ];
 
 				for ( let off = 0; off < 5; off ++ ) {
 
-					// If "solid" text is matched to the current offset, declare it to be an ASCII STL.
 					if ( matchDataViewAt( solid, reader, off ) ) return false;
 
-				} // Couldn't find "solid" text at the beginning; it is binary STL.
-
+				}
 
 				return true;
 
@@ -103,7 +101,6 @@ for alternative installations -->
 
 			function matchDataViewAt( query, reader, offset ) {
 
-				// Check if each byte in query matches the corresponding byte from the current offset
 				for ( let i = 0, il = query.length; i < il; i ++ ) {
 
 					if ( query[ i ] !== reader.getUint8( offset + i ) ) return false;
@@ -123,8 +120,7 @@ for alternative installations -->
 					b,
 					hasColors = false,
 					colors;
-				let defaultR, defaultG, defaultB, alpha; // process STL header
-				// check for default color in header ("COLOR=rgba" sequence).
+				let defaultR, defaultG, defaultB, alpha;
 
 				for ( let index = 0; index < 80 - 10; index ++ ) {
 
@@ -166,7 +162,6 @@ for alternative installations -->
 
 						if ( ( packedColor & 0x8000 ) === 0 ) {
 
-							// facet has its own unique color
 							r = ( packedColor & 0x1F ) / 31;
 							g = ( packedColor >> 5 & 0x1F ) / 31;
 							b = ( packedColor >> 10 & 0x1F ) / 31;
@@ -263,15 +258,13 @@ for alternative installations -->
 							vertexCountPerFace ++;
 							endVertex ++;
 
-						} // every face have to own ONE valid normal
-
+						}
 
 						if ( normalCountPerFace !== 1 ) {
 
 							console.error( 'THREE.STLLoader: Something isn\'t right with the normal of face number ' + faceCounter );
 
-						} // each face have to own THREE valid vertices
-
+						}
 
 						if ( vertexCountPerFace !== 3 ) {
 
@@ -316,7 +309,7 @@ for alternative installations -->
 
 					for ( let i = 0; i < buffer.length; i ++ ) {
 
-						array_buffer[ i ] = buffer.charCodeAt( i ) & 0xff; // implicitly assumes little-endian
+						array_buffer[ i ] = buffer.charCodeAt( i ) & 0xff;
 
 					}
 
@@ -328,8 +321,7 @@ for alternative installations -->
 
 				}
 
-			} // start
-
+			}
 
 			const binData = ensureBinary( data );
 			return isBinary( binData ) ? parseBinary( binData ) : parseASCII( ensureString( data ) );
@@ -340,8 +332,6 @@ for alternative installations -->
 
 	THREE.STLLoader = STLLoader;
 </script>
-
-
 
 <script>
 class DisplaySurface 
@@ -364,24 +354,19 @@ class DisplaySurface
         const distance = Math.abs(eye.clone().dot(displ_norm) + d) / displ_norm.length();
         const target = eye.clone().sub(displ_norm.multiplyScalar(distance));
 
-		var upVector = this.v.clone().normalize(); //new THREE.Vector3(0,1,0);	
+		var upVector = this.v.clone().normalize(); //new THREE.Vector3(0,1,0);    
 		var mat = new THREE.Matrix4();
 		mat = mat.lookAt(eye, target, upVector); // this lookAt version creates only a rotation matrix
 		var translate = new THREE.Matrix4().makeTranslation(-eye.x, -eye.y, -eye.z);
 		mat = mat.multiplyMatrices(mat, translate);
-        //console.log("VIEW");
-        //console.log(mat);
 		return mat;
 	}
 	
-    
     projectionMatrix(eye, znear, zfar)
     {
 		const u_norm = this.u.clone().normalize();
         const v_norm = this.v.clone().normalize();
         const displ_norm = new THREE.Vector3().crossVectors(u_norm, v_norm);
-        //const d = displ_norm.clone().dot(this.origin.clone());
-        //const distance = Math.abs(eye.clone().dot(displ_norm) + d) / displ_norm.length();
 
         const eye_bottom_left = this.origin.clone().sub(eye);
         const distance = -eye_bottom_left.dot(displ_norm);
@@ -401,20 +386,6 @@ class DisplaySurface
         var mat = new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
         return mat;
     }
-    
-
-    /*
-    projectionMatrix(eye, znear, zfar)
-    {
-		// to be written by you!
-
-        var left = -1;
-        var right = 1;
-        var bottom = -1;
-        var top = 1;
-        return new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
-    }
-    */
 }
 
 
@@ -429,12 +400,10 @@ function addDragControlToObjects()
 {
     var objects = [];
     objects.push(scene.getObjectByName("Teapot"));
-	//console.log("Teapot:", scene.getObjectByName("Teapot"));
-	objects.push(scene.getObjectByName("Dragon"));
+    objects.push(scene.getObjectByName("Dragon"));
 
     objects.push(eyeScene.getObjectByName("Head"));
-
-	
+    
     var controls = new THREE.DragControls( objects, camera, renderer.domElement );
     controls.addEventListener( 'hoveron', function ( event ) 
 		{
@@ -479,7 +448,7 @@ function createEyeScene()
     sphere.name = "EyeL";
     sphere.position.set(eyeL.x, eyeL.y, eyeL.z);
     head.add(sphere);
-	
+    
     var geometry = new THREE.SphereGeometry( 3, 32, 22 );
     var material = new THREE.MeshPhongMaterial( { color: 0x0000ff } );
     var sphere = new THREE.Mesh( geometry, material );
@@ -492,9 +461,10 @@ function createEyeScene()
 
 function createRenderer()
 {
-    renderer = new THREE.WebGLRenderer({preserveDrawingBuffer: true});
+    renderer = new THREE.WebGLRenderer({preserveDrawingBuffer: true, antialias: true});
     renderer.autoClear = false;
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true; // enable XR support in the renderer
     document.body.appendChild(renderer.domElement);
 }
 
@@ -522,10 +492,10 @@ async function createScene() {
     var material = new THREE.MeshPhongMaterial({ color: 0xffffff });
     var teapot = new THREE.Mesh(geometry, material);
     teapot.name = "Teapot";
+	teapot.position.x += 20;
     teapot.position.z -= 70;
     scene.add(teapot);
 
-	
     // --- Load Dragon STL (await!) ---
     var geometry_dragon = await loadSTL('./Stanford dragon.stl');
     var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
@@ -534,15 +504,13 @@ async function createScene() {
 
     dragon.rotation.x -= Math.PI / 2;
     dragon.position.copy(teapot.position);
-    dragon.position.x -= 50;
+    dragon.position.x -= 10;
+    dragon.position.z += 50;
 
     scene.add(dragon);
-	/*
-	*/
     createLights(scene);
 }
 
-// Convert STLLoader.load() into a Promise for async/await
 function loadSTL(url) {
 	const loader = new THREE.STLLoader();
     return new Promise((resolve, reject) => {
@@ -555,12 +523,10 @@ function loadSTL(url) {
     });
 }
 
-// create a scene with 3D objects representing the display surfaces
 function createDisplaySurfaceScene()
 {
     displaySurfaceScene = new THREE.Scene();
 
-    // add display surfaces
     for (var [index, displaySurface] of displaySurfaces.entries())
     {
         var origin = displaySurface.origin;
@@ -573,7 +539,7 @@ function createDisplaySurfaceScene()
         cube.name = displaySurface.name;
         if (displaySurface.name == "Left")
             cube.rotation.y = Math.PI / 2;
-       
+           
 		if (displaySurface.name == "Right")
             cube.rotation.y = - Math.PI / 2;
 			
@@ -582,7 +548,7 @@ function createDisplaySurfaceScene()
             cube.rotation.x =  Math.PI / 2;
 			cube.rotation.z =  Math.PI ;
 		}
-       
+           
 	    var uHalf = u.clone().multiplyScalar(0.5);
 		var vHalf = v.clone().multiplyScalar(0.5);
 		var center = new THREE.Vector3().addVectors(origin, uHalf);
@@ -603,7 +569,6 @@ function createDisplaySurfaceTargets()
     for (var v of displaySurfaces)       
         displaySurfaceTargets.push(new THREE.WebGLRenderTarget(SIZE, SIZE));
 }
-
 
 function createCamera()
 {
@@ -628,7 +593,7 @@ function createDisplaySurfaces()
         new THREE.Vector3(0.0, 0.0,  -300.0), 
         new THREE.Vector3(0.0, 300.0,   0.0));
     displaySurfaces.push(leftScreen);
-	
+    
     // RIGHT SCREEN
     var rightScreen = new DisplaySurface("Right",
         new THREE.Vector3( 150.0, -150.0, -150.0), 
@@ -641,7 +606,7 @@ function createDisplaySurfaces()
         new THREE.Vector3(-150.0, -150.0, 150.0), 
         new THREE.Vector3(300.0, 0.0,  0.0), 
         new THREE.Vector3(0.0, 0.0,   -300.0));
-    displaySurfaces.push(floorScreen);	
+    displaySurfaces.push(floorScreen);    
 }
 
 function getLeftEyePosition()
@@ -667,56 +632,77 @@ function cameraFromViewProj(view, proj)
 	return cam;
 }
 
-// refresh function
-var animate = function () {
-    var gl = renderer.getContext();
-    requestAnimationFrame(animate);
+// ---------- main render loop updated to use renderer.setAnimationLoop (supports XR) ----------
 
-    // 1. render scene objects
+function xrFrameLoop(time, xrFrame)
+{
+	// if XR session & reference space exist, update head pose from viewer pose
+	if (xrFrame && xrRefSpace && eyeScene)
+	{
+		const pose = xrFrame.getViewerPose(xrRefSpace);
+		if (pose && pose.views && pose.views.length > 0)
+		{
+			// use first view (head pose)
+			const transform = pose.views[0].transform;
+			const p = transform.position;
+			const o = transform.orientation;
+
+			const head = eyeScene.getObjectByName("Head");
+			if (head)
+			{
+				head.position.set(p.x * HEAD_POSE_SCALE, p.y * HEAD_POSE_SCALE, p.z * HEAD_POSE_SCALE);
+				head.quaternion.set(o.x, o.y, o.z, o.w);
+			}
+		}
+	}
+
+	// --- existing rendering steps (unchanged behavior) ---
+	var gl = renderer.getContext();
+
+	// 1. render scene objects
 	renderer.setClearColor(0x808080);
-    renderer.clear();
-    if (showScene)
-        renderer.render(scene, camera);
+	renderer.clear();
+	if (showScene)
+		renderer.render(scene, camera);
     
-    // 2. render scene objects onto a texture, for each target
-    for (let [index, displaySurface] of displaySurfaces.entries())
-    {
-        renderer.setRenderTarget(displaySurfaceTargets[index]);
-        renderer.setClearColor(0x404040);
-        renderer.clear();
+	// 2. render scene objects onto a texture, for each target
+	for (let [index, displaySurface] of displaySurfaces.entries())
+	{
+		renderer.setRenderTarget(displaySurfaceTargets[index]);
+		renderer.setClearColor(0x404040);
+		renderer.clear();
 
 		// left eye on RED channel
-        gl.colorMask(1, 0, 0, 0); 
+		gl.colorMask(1, 0, 0, 0); 
 		var eye = getLeftEyePosition();
 		var view = displaySurface.viewMatrix(eye);
 		var proj = displaySurface.projectionMatrix(eye, 0.1, 10000);
-        var leftCamera = cameraFromViewProj(view, proj);
-        renderer.render(scene, leftCamera); 
+		var leftCamera = cameraFromViewProj(view, proj);
+		renderer.render(scene, leftCamera); 
     
 		// right eye on GREEN, BLUE channels
 		gl.colorMask(0, 1, 1, 0);
 		var eye = getRightEyePosition();
 		var view = displaySurface.viewMatrix(eye);
 		var proj = displaySurface.projectionMatrix(eye, 0.1, 10000);
-        var rightCamera = cameraFromViewProj(view, proj);
-        renderer.clearDepth();
-        renderer.render(scene, rightCamera); 
+		var rightCamera = cameraFromViewProj(view, proj);
+		renderer.clearDepth();
+		renderer.render(scene, rightCamera); 
 		
-        gl.colorMask(1, 1, 1, 0);
-    }
-    // restore state
-    renderer.setRenderTarget(null);
-    renderer.setClearColor(0x000000);
+		gl.colorMask(1, 1, 1, 0);
+	}
+	// restore state
+	renderer.setRenderTarget(null);
+	renderer.setClearColor(0x000000);
   
-    // 3. render display surfaces as (textured) quads
-    renderer.render(displaySurfaceScene, camera);
+	// 3. render display surfaces as (textured) quads
+	renderer.render(displaySurfaceScene, camera);
 	
 	// 4. render eyes
-    renderer.render(eyeScene, camera);
-	
-};
+	renderer.render(eyeScene, camera);
+}
 
-
+// ---------- keyboard handlers (unchanged) ----------
 window.addEventListener( 'keydown', function ( event ) 
 {
         switch ( event.code ) {
@@ -733,34 +719,85 @@ window.addEventListener( 'keydown', function ( event )
             case 'KeyS':
                 showScene = !showScene;
                 break;
-				
-			case 'KeyT':
-				var viewF = displaySurfaces[0].viewMatrix(new THREE.Vector3(50,20,100));
-				var viewL = displaySurfaces[1].viewMatrix(new THREE.Vector3(50,20,100));
-				var viewR = displaySurfaces[2].viewMatrix(new THREE.Vector3(50,20,100));
-				var viewB = displaySurfaces[3].viewMatrix(new THREE.Vector3(50,20,100));
-				console.log("View matrices:");
-				console.log(viewF);
-				console.log(viewL);
-				console.log(viewR);
-				console.log(viewB);
-				break;
+
+            case 'KeyT':
+                var viewF = displaySurfaces[0].viewMatrix(new THREE.Vector3(50,20,100));
+                var viewL = displaySurfaces[1].viewMatrix(new THREE.Vector3(50,20,100));
+                var viewR = displaySurfaces[2].viewMatrix(new THREE.Vector3(50,20,100));
+                var viewB = displaySurfaces[3].viewMatrix(new THREE.Vector3(50,20,100));
+                console.log("View matrices:");
+                console.log(viewF);
+                console.log(viewL);
+                console.log(viewR);
+                console.log(viewB);
+                break;
                 
             case 'KeyP':
                 var projF = displaySurfaces[0].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
-				var projL = displaySurfaces[1].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
-				var projR = displaySurfaces[2].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
-				var projB = displaySurfaces[3].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
-				console.log("Projection matrices:");
-				console.log(projF);
-				console.log(projL);
-				console.log(projR);
-				console.log(projB);
+                var projL = displaySurfaces[1].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                var projR = displaySurfaces[2].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                var projB = displaySurfaces[3].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+                console.log("Projection matrices:");
+                console.log(projF);
+                console.log(projL);
+                console.log(projR);
+                console.log(projB);
                 break;
-                    
-}
+        }
 });
 
+// ---------- WebXR init & button handling (manual, no external XR button lib) ----------
+
+const xrStatusEl = document.getElementById('xr-status');
+const xrButton = document.getElementById('xr-button');
+
+async function initXRButton() {
+	if (navigator.xr)
+	{
+		xrStatusEl.textContent = 'available';
+		xrButton.disabled = false;
+		xrButton.textContent = 'Enter VR (Quest)';
+		xrButton.onclick = async () => {
+			if (!xrSession) {
+				try {
+					xrButton.disabled = true;
+					xrButton.textContent = 'Starting...';
+					const session = await navigator.xr.requestSession('immersive-vr', {optionalFeatures: ['local-floor', 'bounded-floor']});
+					xrSession = session;
+					renderer.xr.enabled = true;
+					await renderer.xr.setSession(session);
+					// create reference space for getting viewer pose
+					xrRefSpace = await session.requestReferenceSpace('local-floor').catch(()=> session.requestReferenceSpace('local'));
+					xrStatusEl.textContent = 'session started';
+					xrButton.textContent = 'Exit VR';
+					xrButton.disabled = false;
+					// when session ends, cleanup
+					session.addEventListener('end', () => {
+						xrSession = null;
+						xrRefSpace = null;
+						xrStatusEl.textContent = 'session ended';
+						xrButton.textContent = 'Enter VR (Quest)';
+					});
+				} catch (err) {
+					console.error('Failed to start XR session:', err);
+					xrStatusEl.textContent = 'failed to start';
+					xrButton.disabled = false;
+					xrButton.textContent = 'Enter VR (Quest)';
+				}
+			} else {
+				// end session
+				xrSession.end();
+			}
+		};
+	}
+	else {
+		xrStatusEl.textContent = 'not available';
+		xrButton.disabled = true;
+		xrButton.textContent = 'WebXR not supported';
+	}
+}
+
+// ---------- initialization ----------
 
 async function init() {
 
@@ -771,17 +808,21 @@ async function init() {
     createEyeScene();
 
     await createScene();   // <-- WAIT HERE (CRITICAL)
-    console.log("Scene loaded. Dragon:", dragonObj);
+    console.log("Scene loaded.");
 
     createCamera();
     enableOrbitCamera(camera, renderer);
 
     addDragControlToObjects();  // now Dragon exists
 
-    animate();
+    // initialize the XR button and wiring
+    initXRButton();
+
+    // start the main loop using three.js XR compatible loop
+    renderer.setAnimationLoop(xrFrameLoop);
 }
 init();  
 
-		</script>
-    </body>
+</script>
+</body>
 </html>
