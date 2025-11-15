@@ -395,6 +395,7 @@ var eyeCenter, eyeScene;
 var orbitControl;
 var showScene = true;
 var dragonObj;
+var controller1, controller2;
 
 function addDragControlToObjects()
 {
@@ -809,7 +810,11 @@ async function init() {
 
     await createScene();   // <-- WAIT HERE (CRITICAL)
     console.log("Scene loaded.");
+	controller1 = renderer.xr.getController(0);
+	controller2 = renderer.xr.getController(1);
 
+	scene.add(controller1);
+	scene.add(controller2);
     createCamera();
     enableOrbitCamera(camera, renderer);
 
@@ -819,7 +824,37 @@ async function init() {
     initXRButton();
 
     // start the main loop using three.js XR compatible loop
-    renderer.setAnimationLoop(xrFrameLoop);
+    renderer.setAnimationLoop(xrFrameLoop => {
+  const session = renderer.xr.getSession();
+
+  for (const source of session.inputSources) {
+    if (!source.gamepad) continue; // skip gaze-based sources
+
+    const gamepad = source.gamepad;
+
+    // Buttons: usually 0=trigger, 1=grip, 2=touchpad/joystick click
+    gamepad.buttons.forEach((button, index) => {
+      if (button.pressed) {
+		if(index == 0){
+			showScene = !showScene;
+		}
+        console.log(`Button ${index} pressed on`, source.handedness);
+      }
+      if (button.touched) {
+        console.log(`Button ${index} touched on`, source.handedness);
+      }
+    });
+
+    // Axes (joystick: x,y)
+    // Example: axes = [x, y]
+    if (gamepad.axes.length >= 2) {
+      const [x, y] = gamepad.axes;
+      // console.log(`Joystick ${source.handedness}:`, x, y);
+    }
+  }
+
+  renderer.render(scene, camera);
+});
 }
 init();  
 
