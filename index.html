@@ -490,7 +490,7 @@ async function createScene() {
 
     // --- Create Teapot ---
     var geometry = new THREE.TeapotGeometry(40, 15);
-    var material = new THREE.MeshPhongMaterial({ color: 0x0000ff });
+    var material = new THREE.MeshPhongMaterial({ color: 0x00ffff });
     var teapot = new THREE.Mesh(geometry, material);
     teapot.name = "Teapot";
 	teapot.position.x -= 50;
@@ -835,16 +835,14 @@ async function init() {
     // Buttons: usually 0=trigger, 1=grip, 2=touchpad/joystick click
     gamepad.buttons.forEach((button, index) => {
       if (button.pressed) {
-		if(index == 0){
-			showScene = !showScene;
-			const mesh = scene.getObjectByName("Teapot");
+		showScene = !showScene;
+		const mesh = scene.getObjectByName("Teapot");
 
-			// Create a new material
-			const newMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+		// Create a new material
+		const newMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
 
-			// Assign it to the mesh
-			mesh.material = newMat;
-		}
+		// Assign it to the mesh
+		mesh.material = newMat;
         console.log(`Button ${index} pressed on`, source.handedness);
       }
       if (button.touched) {
