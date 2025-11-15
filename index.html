@@ -423,11 +423,15 @@ var displaySurfaces, displaySurfaceScene, displaySurfaceTargets;
 var eyeCenter, eyeScene; 
 var orbitControl;
 var showScene = true;
+var dragonObj;
 
 function addDragControlToObjects()
 {
     var objects = [];
     objects.push(scene.getObjectByName("Teapot"));
+	//console.log("Teapot:", scene.getObjectByName("Teapot"));
+	objects.push(scene.getObjectByName("Dragon"));
+
     objects.push(eyeScene.getObjectByName("Head"));
 
 	
@@ -510,22 +514,45 @@ function createLights(scn)
     scn.add(pointLight);
 }
 
-function createScene()
-{
+async function createScene() {
     scene = new THREE.Scene();
 
-    var geometry = new THREE.TeapotGeometry( 40, 15);
-    var material = new THREE.MeshPhongMaterial( { color: 0xffffff } );
+    // --- Create Teapot ---
+    var geometry = new THREE.TeapotGeometry(40, 15);
+    var material = new THREE.MeshPhongMaterial({ color: 0xffffff });
     var teapot = new THREE.Mesh(geometry, material);
     teapot.name = "Teapot";
-    teapot.position.z-=70;
-    scene.add( teapot );
-    
-    const loader = new STLLoader();
-    const geometry_dragon = loader.load( './Stanford dragon.stl' )
-    scene.add( new THREE.Mesh( geometry_dragon ) );
+    teapot.position.z -= 70;
+    scene.add(teapot);
 
+	
+    // --- Load Dragon STL (await!) ---
+    var geometry_dragon = await loadSTL('./Stanford dragon.stl');
+    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    var dragon = new THREE.Mesh(geometry_dragon, dragonMaterial);
+    dragon.name = "Dragon";
+
+    dragon.rotation.x -= Math.PI / 2;
+    dragon.position.copy(teapot.position);
+    dragon.position.x -= 50;
+
+    scene.add(dragon);
+	/*
+	*/
     createLights(scene);
+}
+
+// Convert STLLoader.load() into a Promise for async/await
+function loadSTL(url) {
+	const loader = new THREE.STLLoader();
+    return new Promise((resolve, reject) => {
+        loader.load(
+            url,
+            geometry => resolve(geometry),
+            undefined,
+            err => reject(err)
+        );
+    });
 }
 
 // create a scene with 3D objects representing the display surfaces
@@ -735,18 +762,25 @@ window.addEventListener( 'keydown', function ( event )
 });
 
 
+async function init() {
 
-createRenderer();  			// create WebGL renderer
-createDisplaySurfaces();	// Display surfaces
-createDisplaySurfaceTargets(); // Textures for the display surfaces
-createDisplaySurfaceScene();	// 3D objects for the display surfaces
-createEyeScene();	// spheres representing head + eyes
-createScene();		// some objects to test (teapot...)
-createCamera();		// a third-person camera
-enableOrbitCamera(camera, renderer);  // basic camera control
-addDragControlToObjects();	// allow some objects to be dragged
-animate();
+    createRenderer();             
+    createDisplaySurfaces();      
+    createDisplaySurfaceTargets();
+    createDisplaySurfaceScene();  
+    createEyeScene();
 
+    await createScene();   // <-- WAIT HERE (CRITICAL)
+    console.log("Scene loaded. Dragon:", dragonObj);
+
+    createCamera();
+    enableOrbitCamera(camera, renderer);
+
+    addDragControlToObjects();  // now Dragon exists
+
+    animate();
+}
+init();  
 
 		</script>
     </body>
