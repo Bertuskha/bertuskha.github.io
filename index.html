@@ -490,7 +490,7 @@ async function createScene() {
 
     // --- Create Teapot ---
     var geometry = new THREE.TeapotGeometry(40, 15);
-    var material = new THREE.MeshPhongMaterial({ color: 0xffffff });
+    var material = new THREE.MeshPhongMaterial({ color: 0x0000ff });
     var teapot = new THREE.Mesh(geometry, material);
     teapot.name = "Teapot";
 	teapot.position.x -= 50;
@@ -837,6 +837,13 @@ async function init() {
       if (button.pressed) {
 		if(index == 0){
 			showScene = !showScene;
+			const mesh = scene.getObjectByName("Teapot");
+
+			// Create a new material
+			const newMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+
+			// Assign it to the mesh
+			mesh.material = newMat;
 		}
         console.log(`Button ${index} pressed on`, source.handedness);
       }
