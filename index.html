@@ -843,6 +843,8 @@ async function init() {
 
 		// Assign it to the mesh
 		mesh.material = newMat;
+		mesh.position.y += 50;
+		scene.add(mesh);
         console.log(`Button ${index} pressed on`, source.handedness);
       }
       if (button.touched) {
