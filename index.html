@@ -498,14 +498,14 @@ async function createScene() {
 
     // --- Load Dragon STL (await!) ---
     var geometry_dragon = await loadSTL('./Stanford dragon.stl');
-    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0x00FF00 });
     var dragon = new THREE.Mesh(geometry_dragon, dragonMaterial);
     dragon.name = "Dragon";
 
     dragon.rotation.x -= Math.PI / 2;
     dragon.position.copy(teapot.position);
-    dragon.position.x -= 10;
-    dragon.position.z += 50;
+    dragon.position.x -= 30;
+    dragon.position.z -= 30;
 
     scene.add(dragon);
     createLights(scene);
