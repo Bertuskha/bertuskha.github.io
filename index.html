@@ -492,7 +492,7 @@ async function createScene() {
     var material = new THREE.MeshPhongMaterial({ color: 0xffffff });
     var teapot = new THREE.Mesh(geometry, material);
     teapot.name = "Teapot";
-	teapot.position.x += 20;
+	teapot.position.x -= 50;
     teapot.position.z -= 70;
     scene.add(teapot);
 
@@ -504,8 +504,8 @@ async function createScene() {
 
     dragon.rotation.x -= Math.PI / 2;
     dragon.position.copy(teapot.position);
-    dragon.position.x -= 30;
-    dragon.position.z -= 0;
+    dragon.position.x += 80;
+    dragon.position.z += 5;
 
     scene.add(dragon);
     createLights(scene);
