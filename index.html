@@ -395,7 +395,6 @@ var eyeCenter, eyeScene;
 var orbitControl;
 var showScene = true;
 var dragonObj;
-var controller1, controller2;
 
 function addDragControlToObjects()
 {
@@ -490,23 +489,23 @@ async function createScene() {
 
     // --- Create Teapot ---
     var geometry = new THREE.TeapotGeometry(40, 15);
-    var material = new THREE.MeshPhongMaterial({ color: 0x00ffff });
+    var material = new THREE.MeshPhongMaterial({ color: 0xffffff });
     var teapot = new THREE.Mesh(geometry, material);
     teapot.name = "Teapot";
-	teapot.position.x -= 50;
+	teapot.position.x += 20;
     teapot.position.z -= 70;
     scene.add(teapot);
 
     // --- Load Dragon STL (await!) ---
     var geometry_dragon = await loadSTL('./Stanford dragon.stl');
-    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0x00FF00 });
+    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
     var dragon = new THREE.Mesh(geometry_dragon, dragonMaterial);
     dragon.name = "Dragon";
 
     dragon.rotation.x -= Math.PI / 2;
     dragon.position.copy(teapot.position);
-    dragon.position.x += 80;
-    dragon.position.z += 5;
+    dragon.position.x -= 10;
+    dragon.position.z += 50;
 
     scene.add(dragon);
     createLights(scene);
@@ -648,12 +647,12 @@ function xrFrameLoop(time, xrFrame)
 			const p = transform.position;
 			const o = transform.orientation;
 
-			/*const head = eyeScene.getObjectByName("Head");
+			const head = eyeScene.getObjectByName("Head");
 			if (head)
 			{
 				head.position.set(p.x * HEAD_POSE_SCALE, p.y * HEAD_POSE_SCALE, p.z * HEAD_POSE_SCALE);
 				head.quaternion.set(o.x, o.y, o.z, o.w);
-			}*/
+			}
 		}
 	}
 
@@ -810,11 +809,7 @@ async function init() {
 
     await createScene();   // <-- WAIT HERE (CRITICAL)
     console.log("Scene loaded.");
-	controller1 = renderer.xr.getController(0);
-	controller2 = renderer.xr.getController(1);
 
-	scene.add(controller1);
-	scene.add(controller2);
     createCamera();
     enableOrbitCamera(camera, renderer);
 
@@ -824,44 +819,7 @@ async function init() {
     initXRButton();
 
     // start the main loop using three.js XR compatible loop
-    renderer.setAnimationLoop(xrFrameLoop => {
-  const session = renderer.xr.getSession();
-
-  for (const source of session.inputSources) {
-    if (!source.gamepad) continue; // skip gaze-based sources
-
-    const gamepad = source.gamepad;
-
-    // Buttons: usually 0=trigger, 1=grip, 2=touchpad/joystick click
-    gamepad.buttons.forEach((button, index) => {
-      if (button.pressed) {
-		showScene = !showScene;
-		const mesh = scene.getObjectByName("Teapot");
-
-		// Create a new material
-		const newMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
-
-		// Assign it to the mesh
-		mesh.material = newMat;
-		mesh.position.y += 50;
-		scene.add(mesh);
-        console.log(`Button ${index} pressed on`, source.handedness);
-      }
-      if (button.touched) {
-        console.log(`Button ${index} touched on`, source.handedness);
-      }
-    });
-
-    // Axes (joystick: x,y)
-    // Example: axes = [x, y]
-    if (gamepad.axes.length >= 2) {
-      const [x, y] = gamepad.axes;
-      // console.log(`Joystick ${source.handedness}:`, x, y);
-    }
-  }
-
-  renderer.render(scene, camera);
-});
+    renderer.setAnimationLoop(xrFrameLoop);
 }
 init();  
 
