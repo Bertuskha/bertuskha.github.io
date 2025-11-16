@@ -14,7 +14,33 @@
 
 <button id="xr-button" style="position:fixed;right:20px;top:20px;z-index:999;padding:8px 12px;">Init WebXR</button>
 
-<script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.139.2/build/three.min.js">// --- Added XR controller input + headpose + material feedback ---
+// Call this inside your setAnimationLoop handler
+function updateXRInputs(xrFrame) {
+    const session = renderer.xr.getSession();
+    if (!session) return;
+    // Controller input example: toggle showScene with A button
+    for (let source of session.inputSources) {
+        if (source.gamepad) {
+            const buttons = source.gamepad.buttons;
+            if (buttons[0].pressed && !updateXRInputs._aWasPressed) {
+                showScene = !showScene;
+                Head.material.color.set(showScene ? 0x00ff00 : 0xff0000);
+            }
+            updateXRInputs._aWasPressed = buttons[0].pressed;
+        }
+    }
+    // Head pose update
+    const pose = xrFrame.getViewerPose(xrRefSpace);
+    if (pose) {
+        const view = pose.views[0];
+        const p = view.transform.position;
+        const o = view.transform.orientation;
+        Head.position.set(p.x * HEAD_POSE_SCALE, p.y * HEAD_POSE_SCALE, p.z * HEAD_POSE_SCALE);
+        Head.quaternion.set(o.x, o.y, o.z, o.w);
+    }
+}
+</script>
 <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
 <script src="https://unpkg.com/three@0.139.2/examples/js/controls/DragControls.js"></script>
 <script src="https://unpkg.com/three@0.139.2/examples/js/geometries/TeapotGeometry.js"></script>
@@ -464,7 +490,7 @@ function createRenderer()
     renderer = new THREE.WebGLRenderer({preserveDrawingBuffer: true, antialias: true});
     renderer.autoClear = false;
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.xr.enabled = true; // enable XR support in the renderer
+    renderer.xr.enabled = true;
     document.body.appendChild(renderer.domElement);
 }
 
@@ -632,17 +658,13 @@ function cameraFromViewProj(view, proj)
 	return cam;
 }
 
-// ---------- main render loop updated to use renderer.setAnimationLoop (supports XR) ----------
-
-function xrFrameLoop(time, xrFrame)
+function animate(time, xrFrame)
 {
-	// if XR session & reference space exist, update head pose from viewer pose
 	if (xrFrame && xrRefSpace && eyeScene)
 	{
 		const pose = xrFrame.getViewerPose(xrRefSpace);
 		if (pose && pose.views && pose.views.length > 0)
 		{
-			// use first view (head pose)
 			const transform = pose.views[0].transform;
 			const p = transform.position;
 			const o = transform.orientation;
@@ -650,13 +672,15 @@ function xrFrameLoop(time, xrFrame)
 			const head = eyeScene.getObjectByName("Head");
 			if (head)
 			{
-				head.position.set(p.x * HEAD_POSE_SCALE, p.y * HEAD_POSE_SCALE, p.z * HEAD_POSE_SCALE);
+				const mesh = scene.getObjectByName("Teapot");
+				mesh.material.color.set(0xff0000);
+				console.log("HEAD!");
+				head.position.set(p.x * HEAD_POSE_SCALE, p.y * HEAD_POSE_SCALE, p.z * HEAD_POSE_SCALE );
 				head.quaternion.set(o.x, o.y, o.z, o.w);
 			}
 		}
 	}
 
-	// --- existing rendering steps (unchanged behavior) ---
 	var gl = renderer.getContext();
 
 	// 1. render scene objects
@@ -702,7 +726,6 @@ function xrFrameLoop(time, xrFrame)
 	renderer.render(eyeScene, camera);
 }
 
-// ---------- keyboard handlers (unchanged) ----------
 window.addEventListener( 'keydown', function ( event ) 
 {
         switch ( event.code ) {
@@ -745,8 +768,6 @@ window.addEventListener( 'keydown', function ( event )
                 break;
         }
 });
-
-// ---------- WebXR init & button handling (manual, no external XR button lib) ----------
 
 const xrStatusEl = document.getElementById('xr-status');
 const xrButton = document.getElementById('xr-button');
@@ -797,7 +818,6 @@ async function initXRButton() {
 	}
 }
 
-// ---------- initialization ----------
 
 async function init() {
 
@@ -807,19 +827,16 @@ async function init() {
     createDisplaySurfaceScene();  
     createEyeScene();
 
-    await createScene();   // <-- WAIT HERE (CRITICAL)
+    await createScene();   
     console.log("Scene loaded.");
 
     createCamera();
     enableOrbitCamera(camera, renderer);
 
-    addDragControlToObjects();  // now Dragon exists
-
-    // initialize the XR button and wiring
+    addDragControlToObjects(); 
     initXRButton();
 
-    // start the main loop using three.js XR compatible loop
-    renderer.setAnimationLoop(xrFrameLoop);
+    renderer.setAnimationLoop(animate);
 }
 init();  
 
