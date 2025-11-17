@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <title>CAVE simulator</title>
-  <script type="module" crossorigin src="/assets/index-rtR8D5sq.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-Dd6lRqA4.css">
 </head>
 <body>
@@ -343,6 +342,690 @@ for alternative installations -->
 </script>
 
 
-
+
+<script>
+class DisplaySurface 
+{
+    constructor(name, origin, u_vector, v_vector) 
+    {
+        this.name = name;
+        this.origin = origin;
+        this.u = u_vector;
+        this.v = v_vector;
+    }
+
+	viewMatrix(eye)
+	{
+        const u_norm = this.u.clone().normalize();
+        const v_norm = this.v.clone().normalize();
+        const displ_norm = new THREE.Vector3().crossVectors(u_norm, v_norm);
+
+        const d = displ_norm.clone().dot(this.origin);
+        const distance = Math.abs(eye.clone().dot(displ_norm) + d) / displ_norm.length();
+        const target = eye.clone().sub(displ_norm.multiplyScalar(distance));
+
+		var upVector = this.v.clone().normalize(); //new THREE.Vector3(0,1,0);	
+		var mat = new THREE.Matrix4();
+		mat = mat.lookAt(eye, target, upVector); // this lookAt version creates only a rotation matrix
+		var translate = new THREE.Matrix4().makeTranslation(-eye.x, -eye.y, -eye.z);
+		mat = mat.multiplyMatrices(mat, translate);
+        //console.log("VIEW");
+        //console.log(mat);
+		return mat;
+	}
+	
+    
+    projectionMatrix(eye, znear, zfar)
+    {
+		const u_norm = this.u.clone().normalize();
+        const v_norm = this.v.clone().normalize();
+        const displ_norm = new THREE.Vector3().crossVectors(u_norm, v_norm);
+        //const d = displ_norm.clone().dot(this.origin.clone());
+        //const distance = Math.abs(eye.clone().dot(displ_norm) + d) / displ_norm.length();
+
+        const eye_bottom_left = this.origin.clone().sub(eye);
+        const distance = -eye_bottom_left.dot(displ_norm);
+
+        const eye_top_right = this.origin.clone().add(this.u).add(this.v).sub(eye);
+
+        var left_t = eye_bottom_left.clone().dot(u_norm);
+        var right_t = eye_top_right.clone().dot(u_norm);
+        var bottom_t = eye_bottom_left.clone().dot(v_norm);
+        var top_t = eye_top_right.clone().dot(v_norm);
+
+        var left = znear * left_t / distance;
+        var right = znear * right_t / distance;
+        var bottom = znear * bottom_t / distance;
+        var top = znear * top_t / distance;
+
+        var mat = new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
+        return mat;
+    }
+    
+
+    /*
+    projectionMatrix(eye, znear, zfar)
+    {
+		// to be written by you!
+
+        var left = -1;
+        var right = 1;
+        var bottom = -1;
+        var top = 1;
+        return new THREE.Matrix4().makePerspective(left, right, top, bottom, znear, zfar);
+    }
+    */
+}
+
+
+var renderer, scene, camera;
+var displaySurfaces, displaySurfaceScene, displaySurfaceTargets;
+var eyeCenter, eyeScene; 
+var orbitControl;
+var showScene = true;
+var frustrumScene;
+var visibleFrustrum = 0 // 0 - None, 1 - Left, 2 - Right
+var frustrumDisplayID = 0;  // 0 - Front, 1 - Left, 2 - Right, 3 - Floor
+var eyeRaysScene;
+var eyeRayObjID = 0; // Default: first object inside the CAVE
+var showConvergence = false;
+var numMeshesInScene = 0;
+
+function addDragControlToObjects()
+{
+    var objects = [];
+    objects.push(scene.getObjectByName("Teapot"));
+    objects.push(scene.getObjectByName("Dragon"))
+    objects.push(eyeScene.getObjectByName("Head"));
+
+	
+    var controls = new THREE.DragControls( objects, camera, renderer.domElement );
+    controls.addEventListener( 'hoveron', function ( event ) 
+		{
+            orbitControl.enabled = false;
+        } );
+    controls.addEventListener( 'hoveroff', function ( event ) 
+	{
+            orbitControl.enabled = true;
+    } );
+	controls.addEventListener( 'dragstart', function ( event ) 
+		{
+            event.object.material.emissive.set( 0xaaaaaa );
+        } );
+    controls.addEventListener( 'dragend', function ( event ) 
+		{
+            event.object.material.emissive.set( 0x000000 );
+    } );
+}
+
+function createEyeScene()
+{
+    var IPD = 6.8; 
+    eyeCenter = new THREE.Vector3(50, 20, 100);
+    // eye positions relative to the head
+    var eyeL = new THREE.Vector3( - IPD/2, 10, -6);
+    var eyeR = new THREE.Vector3( + IPD/2, 10, -6);
+    
+    eyeScene = new THREE.Scene();
+
+    // add sphere representing head
+    var geometry = new THREE.SphereGeometry( 10, 32, 22 );
+    var material = new THREE.MeshPhongMaterial( { color: 0xaaaaaa } );
+    var head = new THREE.Mesh( geometry, material );
+    head.name = "Head";
+    head.position.set(eyeCenter.x, eyeCenter.y, eyeCenter.z);
+    eyeScene.add(head);
+
+    // add spheres representing L/R eyes
+    var geometry = new THREE.SphereGeometry( 3, 32, 22 );
+    var material = new THREE.MeshPhongMaterial( { color: 0xff0000 } );
+    var sphere = new THREE.Mesh( geometry, material );
+    sphere.name = "EyeL";
+    sphere.position.set(eyeL.x, eyeL.y, eyeL.z);
+    head.add(sphere);
+	
+    var geometry = new THREE.SphereGeometry( 3, 32, 22 );
+    var material = new THREE.MeshPhongMaterial( { color: 0x0000ff } );
+    var sphere = new THREE.Mesh( geometry, material );
+    sphere.name = "EyeR";
+    sphere.position.set(eyeR.x, eyeR.y, eyeR.z);
+	head.add(sphere);
+    
+    createLights(eyeScene);
+}
+
+function createRenderer()
+{
+    renderer = new THREE.WebGLRenderer({
+		preserveDrawingBuffer: true,
+		antialias: true
+	});
+    renderer.autoClear = false;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+	renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+}
+
+function enableOrbitCamera(cam, renderer)
+{
+    orbitControl = new THREE.OrbitControls(cam, renderer.domElement );
+    orbitControl.minDistance = 120;
+    orbitControl.maxDistance = 50000;
+}
+
+function createLights(scn)
+{
+    var ambientLight = new THREE.AmbientLight(0x888888, 0.4);
+    scn.add(ambientLight);
+    var pointLight = new THREE.PointLight(0xffffff, 0.8);
+	pointLight.position.z += 200;
+    scn.add(pointLight);
+}
+
+async function createScene() {
+    scene = new THREE.Scene();
+
+    // --- Create Teapot ---
+    var geometry = new THREE.TeapotGeometry(40, 15);
+    var material = new THREE.MeshPhongMaterial({ color: 0xffffff });
+    var teapot = new THREE.Mesh(geometry, material);
+    teapot.name = "Teapot";
+	teapot.position.x += 20;
+    teapot.position.z -= 70;
+    scene.add(teapot);
+
+	
+    // --- Load Dragon STL (await!) ---
+    var geometry_dragon = await loadSTL('./Stanford dragon.stl');
+    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    var dragon = new THREE.Mesh(geometry_dragon, dragonMaterial);
+    dragon.name = "Dragon";
+
+    dragon.rotation.x -= Math.PI / 2;
+    dragon.position.copy(teapot.position);
+    dragon.position.x -= 10;
+    dragon.position.z += 50;
+
+
+    scene.add(dragon);
+	/*
+	*/
+
+    numMeshesInScene = 0;
+	for (var k = 0; k < scene.children.length; ++k) {
+		if (scene.children[k].isMesh)
+			numMeshesInScene += 1;
+	}
+    
+    createLights(scene);
+}
+
+// Convert STLLoader.load() into a Promise for async/await
+function loadSTL(url) {
+	const loader = new THREE.STLLoader();
+    return new Promise((resolve, reject) => {
+        loader.load(
+            url,
+            geometry => resolve(geometry),
+            undefined,
+            err => reject(err)
+        );
+    });
+}
+
+function createFrustrumScene()
+{
+	frustrumScene = new THREE.Scene();
+	var eyeL = getLeftEyePosition();
+	var eyeR = getRightEyePosition();
+	
+	const mtlLeftEye = new THREE.MeshPhongMaterial({
+		color: 0xff3b14,      // red
+		side: THREE.DoubleSide,
+		transparent: true,    // enable alpha
+		opacity: 0.4          // semitransparent (0 = invisible, 1 = opaque)
+	});
+
+	const mtlRightEye = new THREE.MeshPhongMaterial({
+		color: 0x00ffff,      // cyan
+		side: THREE.DoubleSide,
+		transparent: true,    // enable alpha
+		opacity: 0.4          // semitransparent (0 = invisible, 1 = opaque)
+	});
+
+
+	for (var [index, displaySurface] of displaySurfaces.entries()) {
+		if (index != frustrumDisplayID) continue;
+
+		var frustumLeftMesh = createFrustrumMesh(eyeL, displaySurface, mtlLeftEye);
+		var frustumRightMesh = createFrustrumMesh(eyeR, displaySurface, mtlRightEye);
+
+		if (visibleFrustrum == 3) {
+			frustrumScene.add(frustumLeftMesh);
+			frustrumScene.add(frustumRightMesh);
+		}
+		else if (visibleFrustrum == 1)
+			frustrumScene.add(frustumLeftMesh);
+		else if (visibleFrustrum == 2)
+			frustrumScene.add(frustumRightMesh);
+	}
+
+	createLights(frustrumScene);
+}
+
+// create a scene with 3D objects representing the display surfaces
+function createDisplaySurfaceScene()
+{
+    displaySurfaceScene = new THREE.Scene();
+
+    // add display surfaces
+    for (var [index, displaySurface] of displaySurfaces.entries())
+    {
+        var origin = displaySurface.origin;
+        var u = displaySurface.u;
+        var v = displaySurface.v;
+  
+        var geometry = new THREE.BoxGeometry(u.length(), v.length(), 0.01);
+        var material = new THREE.MeshPhongMaterial( {map: displaySurfaceTargets[index].texture} );
+        var cube = new THREE.Mesh( geometry, material );
+        cube.name = displaySurface.name;
+        if (displaySurface.name == "Left")
+            cube.rotation.y = Math.PI / 2;
+       
+		if (displaySurface.name == "Right")
+            cube.rotation.y = - Math.PI / 2;
+			
+		if (displaySurface.name == "Floor")
+		{
+            cube.rotation.x =  Math.PI / 2;
+			cube.rotation.z =  Math.PI ;
+		}
+       
+	    var uHalf = u.clone().multiplyScalar(0.5);
+		var vHalf = v.clone().multiplyScalar(0.5);
+		var center = new THREE.Vector3().addVectors(origin, uHalf);
+		center.add(vHalf);
+		cube.position.set(center.x, center.y, center.z);
+		
+        displaySurfaceScene.add(cube);
+    }
+    
+    createLights(displaySurfaceScene);
+}
+
+function createDisplaySurfaceTargets()
+{
+    const SIZE = 1024;  // texture resolution
+    displaySurfaceTargets = [];
+    
+    for (var v of displaySurfaces)       
+        displaySurfaceTargets.push(new THREE.WebGLRenderTarget(SIZE, SIZE));
+}
+
+
+function createCamera()
+{
+    camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 10000 );
+    camera.position.set( 100, 100, 300 );
+    camera.lookAt( 0, 0, 0 );
+}
+
+function createDisplaySurfaces()
+{
+    displaySurfaces = [];
+    // FRONT SCREEN
+    var frontScreen = new DisplaySurface("Front", 
+        new THREE.Vector3(-150.0, -150.0, -150.0), 
+        new THREE.Vector3(300.0, 0.0,   0.0), 
+        new THREE.Vector3(0.0, 300.0,   0.0));
+    displaySurfaces.push(frontScreen);
+
+    // LEFT SCREEN
+    var leftScreen = new DisplaySurface("Left",
+        new THREE.Vector3(-150.0, -150.0, 150.0), 
+        new THREE.Vector3(0.0, 0.0,  -300.0), 
+        new THREE.Vector3(0.0, 300.0,   0.0));
+    displaySurfaces.push(leftScreen);
+	
+    // RIGHT SCREEN
+    var rightScreen = new DisplaySurface("Right",
+        new THREE.Vector3( 150.0, -150.0, -150.0), 
+        new THREE.Vector3(0.0, 0.0,   300.0), 
+        new THREE.Vector3(0.0, 300.0,   0.0));
+    displaySurfaces.push(rightScreen);
+
+    // FLOOR SCREEN
+    var floorScreen = new DisplaySurface("Floor",
+        new THREE.Vector3(-150.0, -150.0, 150.0), 
+        new THREE.Vector3(300.0, 0.0,  0.0), 
+        new THREE.Vector3(0.0, 0.0,   -300.0));
+    displaySurfaces.push(floorScreen);	
+}
+
+function getLeftEyePosition()
+{
+    var eye = eyeScene.getObjectByName("EyeL");
+    return eye.getWorldPosition(new THREE.Vector3());
+}
+
+function getRightEyePosition()
+{
+    var eye = eyeScene.getObjectByName("EyeR");
+    return eye.getWorldPosition(new THREE.Vector3());
+}
+
+function cameraFromViewProj(view, proj)
+{
+	var cam = camera.clone();
+    var inv = new THREE.Matrix4();
+	inv.copy(view).invert();
+	cam.position.set(inv.elements[12], inv.elements[13], inv.elements[14]);
+	cam.setRotationFromMatrix(view);
+	cam.projectionMatrix = proj.clone();
+	return cam;
+}
+
+
+function createFrustrumMesh(eyePos, displaySurface, material) {
+	var origin = displaySurface.origin;
+    var u = displaySurface.u;
+    var v = displaySurface.v;
+
+	var lt = origin.clone().add(v);
+	var rb = origin.clone().add(u);
+	var rt = origin.clone().add(u).add(v);
+
+    // --- 1. Define vertices (x, y, z) ---
+    // For example: A simple pyramid (4 triangles + base)
+    const vertices = new Float32Array([
+		// eye pos
+		eyePos.x, eyePos.y, eyePos.z,
+
+		//Display corners
+		origin.x, origin.y, origin.z,
+		lt.x, lt.y, lt.z,
+		rb.x, rb.y, rb.z,
+		rt.x, rt.y, rt.z
+    ]);
+
+    // --- 2. Define triangular faces using vertex indices ---
+    const indices = [
+        0, 1, 2,
+		0, 1, 3,
+		0, 3, 4,
+		0, 2, 4
+    ];
+
+    // --- 3. Create the geometry ---
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+    geom.setIndex(indices);
+    geom.computeVertexNormals(); // IMPORTANT: lighting needs normals
+
+    // --- 4. Create the mesh ---
+    const mesh = new THREE.Mesh(geom, material);
+    mesh.name = "ManualMesh";
+    mesh.position.set(0, 0, 0);
+
+	// Create edges geometry from the mesh geometry
+	const edges = new THREE.EdgesGeometry(geom);
+
+	// Fully opaque cyan edges
+	const edgeMaterial = new THREE.LineBasicMaterial({
+		color: material.color.clone(),
+		side: THREE.DoubleSide
+	});
+
+	// LineSegments holds the edges
+	const edgeLines = new THREE.LineSegments(edges, edgeMaterial);
+
+	// Add edges to the same parent as the mesh
+	mesh.add(edgeLines);
+
+    return mesh;
+}
+
+function findPanelHit(origin, direction, maxLength = 1000000) {
+    const raycaster = new THREE.Raycaster();
+    raycaster.set(origin, direction);
+    raycaster.far = maxLength;
+
+    // collect panel meshes
+    const panels = [];
+    displaySurfaceScene.traverse(obj => {
+        if (obj.isMesh) {
+			panels.push(obj);
+		}
+    });
+
+    const hits = raycaster.intersectObjects(panels, false);
+	for (var j = 0; j < hits.length; ++j) {
+		const displayID = displaySurfaceScene.children.indexOf(hits[j].object);
+		if (displayID < 0) continue;
+		
+		const display = displaySurfaces[displayID];
+		const u_norm = display.u.clone().normalize();
+		const v_norm = display.v.clone().normalize();
+		const displ_norm = new THREE.Vector3().crossVectors(u_norm, v_norm);
+
+        if (!displ_norm) continue; // fallback: accept all
+
+        // ray must approach from the front side
+        const dot = direction.dot(displ_norm);
+        if (dot < 0) 
+			return hits[j];
+	}
+    return null; // no hit
+}
+
+
+function createEyeRaysScene(objCenter) {
+	eyeRaysScene = new THREE.Scene();
+
+	/*
+	// Parameters
+	const origin = new THREE.Vector3(0, 0, 0);
+	const direction = new THREE.Vector3(1, 1, 0).normalize(); // must be normalized
+	const length = 5;
+
+	// Compute end point
+	const end = origin.clone().add(direction.clone().multiplyScalar(length));
+
+	// Create geometry
+	const geometry = new THREE.BufferGeometry().setFromPoints([origin, end]);
+
+	// Create material
+	const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+
+	// Create line
+	const rayLine = new THREE.Line(geometry, material);
+
+	// Add to scene
+	eyeRaysScene.add(rayLine);
+	*/
+
+
+	const eyeL = getLeftEyePosition();
+	const dirArrowL = objCenter.clone().sub(eyeL).normalize();
+	const hitPointL = findPanelHit(eyeL, dirArrowL);
+	var lenArrowL;
+	if (hitPointL) lenArrowL = eyeL.distanceTo(hitPointL.point);
+	else lenArrowL = 0;
+	const colArrowL = 0xff0000;
+
+	const eyeR = getRightEyePosition();
+	const dirArrowR = objCenter.clone().sub(eyeR).normalize();
+	const hitPointR = findPanelHit(eyeR, dirArrowR);
+	var lenArrowR;
+	if (hitPointR) lenArrowR = eyeR.distanceTo(hitPointR.point);
+	else lenArrowR = 0;
+	const colArrowR = 0x0000ff;
+
+	// Make head 10% of arrow length, width 5% of arrow length
+	const headLength = 10;
+	const headWidth = 5;
+
+	const arrowL = new THREE.ArrowHelper(dirArrowL, eyeL, lenArrowL, colArrowL, headLength, headWidth);
+	const arrowR = new THREE.ArrowHelper(dirArrowR, eyeR, lenArrowR, colArrowR, headLength, headWidth);
+	if (lenArrowL > 0) eyeRaysScene.add(arrowL);
+	if (lenArrowR > 0) eyeRaysScene.add(arrowR);
+}
+
+
+// refresh function
+var animate = function () {
+    var gl = renderer.getContext();
+    requestAnimationFrame(animate);
+
+    // 1. render scene objects
+	renderer.setClearColor(0x808080);
+    renderer.clear();
+    if (showScene)
+        renderer.render(scene, camera);
+    
+    // 2. render scene objects onto a texture, for each target
+    for (let [index, displaySurface] of displaySurfaces.entries())
+    {
+        renderer.setRenderTarget(displaySurfaceTargets[index]);
+        renderer.setClearColor(0x404040);
+        renderer.clear();
+
+		// left eye on RED channel
+        gl.colorMask(1, 0, 0, 0); 
+		var eye = getLeftEyePosition();
+		var view = displaySurface.viewMatrix(eye);
+		var proj = displaySurface.projectionMatrix(eye, 0.1, 10000);
+        var leftCamera = cameraFromViewProj(view, proj);
+        renderer.render(scene, leftCamera); 
+    
+		// right eye on GREEN, BLUE channels
+		gl.colorMask(0, 1, 1, 0);
+		var eye = getRightEyePosition();
+		var view = displaySurface.viewMatrix(eye);
+		var proj = displaySurface.projectionMatrix(eye, 0.1, 10000);
+        var rightCamera = cameraFromViewProj(view, proj);
+        renderer.clearDepth();
+        renderer.render(scene, rightCamera); 
+		
+        gl.colorMask(1, 1, 1, 0);
+    }
+    // restore state
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(0x000000);
+  
+    // 3. render display surfaces as (textured) quads
+    renderer.render(displaySurfaceScene, camera);
+	
+	// 4. render eyes
+    renderer.render(eyeScene, camera);
+	
+	// 5. create and render frustrum
+	if (visibleFrustrum != 0) {
+		createFrustrumScene();
+		renderer.render(frustrumScene, camera);
+	}
+
+	// 6. render eye rays
+	//var objPos = undefined;
+	//for (var i = 0; i < scene.children.length; ++i) {
+	//	if (scene.children[i].isMesh) {
+	//		console.log("Found mesh:", obj.name, obj, obj.position);
+	//		objPos = obj.position.clone();
+	//	}
+	//}
+	
+	var objPos = scene.children[eyeRayObjID].position.clone();
+    if(scene.children[eyeRayObjID].name == "Dragon"){
+        objPos.y += 40;
+        objPos.x += 90;
+        objPos.z -= 80;
+    }
+	if (showConvergence && objPos != undefined) {
+		createEyeRaysScene(objPos);
+		renderer.render(eyeRaysScene, camera);
+	}
+};
+
+
+window.addEventListener( 'keydown', function ( event ) 
+{
+        switch ( event.code ) {
+            case 'KeyL': 
+                var eye = getLeftEyePosition();
+                camera.position.set(eye.x, eye.y, eye.z); 
+                break;
+                
+            case 'KeyR': 
+                var eye = getRightEyePosition();
+                camera.position.set(eye.x, eye.y, eye.z); 
+                break;
+                
+            case 'KeyS':
+                showScene = !showScene;
+                break;
+				
+			case 'KeyT':
+				var viewF = displaySurfaces[0].viewMatrix(new THREE.Vector3(50,20,100));
+				var viewL = displaySurfaces[1].viewMatrix(new THREE.Vector3(50,20,100));
+				var viewR = displaySurfaces[2].viewMatrix(new THREE.Vector3(50,20,100));
+				var viewB = displaySurfaces[3].viewMatrix(new THREE.Vector3(50,20,100));
+				console.log("View matrices:");
+				console.log(viewF);
+				console.log(viewL);
+				console.log(viewR);
+				console.log(viewB);
+				break;
+                
+            case 'KeyP':
+                var projF = displaySurfaces[0].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				var projL = displaySurfaces[1].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				var projR = displaySurfaces[2].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				var projB = displaySurfaces[3].projectionMatrix(new THREE.Vector3(50,20,100), 0.1, 100);
+				console.log("Projection matrices:");
+				console.log(projF);
+				console.log(projL);
+				console.log(projR);
+				console.log(projB);
+                break;
+			
+			case 'KeyF':
+				visibleFrustrum = (visibleFrustrum + 1) % 4;
+				break;
+
+			case 'KeyD':
+				frustrumDisplayID = (frustrumDisplayID + 1) % 4;
+				break;
+
+			case 'KeyC':
+				showConvergence = !showConvergence;
+				break;
+
+			case 'KeyX':
+				eyeRayObjID = (eyeRayObjID + 1) % numMeshesInScene;
+}
+});
+
+
+
+async function init() {
+
+    createRenderer();             
+    createDisplaySurfaces();      
+    createDisplaySurfaceTargets();
+    createDisplaySurfaceScene();  
+    createEyeScene();
+    createFrustrumScene();
+    await createScene();   // <-- WAIT HERE (CRITICAL)
+
+    createCamera();
+    enableOrbitCamera(camera, renderer);
+
+    addDragControlToObjects();  // now Dragon exists
+
+    renderer.setAnimationLoop(animate);
+}
+init();  
+
+		</script>
     </body>
 </html>
