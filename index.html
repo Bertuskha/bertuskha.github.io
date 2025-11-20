@@ -556,7 +556,7 @@ async function createScene() {
 	*/
 	// --- Load Torus STL (await!) ---
     var geometry_torus = await loadSTL('./torus_big.stl');
-    var torusMaterial = new THREE.MeshPhongMaterial({ color: 0xaaaaff });
+    var torusMaterial = new THREE.MeshPhongMaterial({ color: 0xaaffff });
     var torus = new THREE.Mesh(geometry_torus, torusMaterial);
     torus.name = "Torus";
 
