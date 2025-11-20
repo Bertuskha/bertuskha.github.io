@@ -438,7 +438,8 @@ function addDragControlToObjects()
 {
     var objects = [];
     objects.push(scene.getObjectByName("Teapot"));
-    objects.push(scene.getObjectByName("Dragon"))
+    objects.push(scene.getObjectByName("Dragon"));
+    objects.push(scene.getObjectByName("Torus"));
     objects.push(eyeScene.getObjectByName("Head"));
 
 	
@@ -540,7 +541,7 @@ async function createScene() {
 	
     // --- Load Dragon STL (await!) ---
     var geometry_dragon = await loadSTL('./Stanford dragon.stl');
-    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    var dragonMaterial = new THREE.MeshPhongMaterial({ color: 0xffaaaa });
     var dragon = new THREE.Mesh(geometry_dragon, dragonMaterial);
     dragon.name = "Dragon";
 
@@ -553,6 +554,19 @@ async function createScene() {
     scene.add(dragon);
 	/*
 	*/
+	// --- Load Torus STL (await!) ---
+    var geometry_torus = await loadSTL('./torus_big.stl');
+    var torusMaterial = new THREE.MeshPhongMaterial({ color: 0xaaaaff });
+    var torus = new THREE.Mesh(geometry_torus, torusMaterial);
+    torus.name = "Torus";
+
+    torus.rotation.x -= Math.PI / 2;
+    torus.position.copy(teapot.position);
+    torus.position.x -= 100;
+    torus.position.z += 60;
+
+
+    scene.add(torus);
 
     numMeshesInScene = 0;
 	for (var k = 0; k < scene.children.length; ++k) {
